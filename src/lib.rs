@@ -1,7 +1,5 @@
 use pyo3::prelude::*;
-use rand::Rng;
-use std::cmp::Ordering;
-use std::io;
+mod swc_reader;
 
 /// A Python module implemented in Rust.
 #[pymodule]

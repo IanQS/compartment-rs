@@ -9,4 +9,6 @@ name = "compartment_rs"
 crate-type = ["cdylib"]
 
 [dependencies]
+itertools = "0.14.0"
+log = "0.4.29"
 pyo3 = "0.27.0"
