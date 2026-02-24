@@ -9,7 +9,7 @@ use std::io::{self, BufRead, BufReader};
 
 /// We use the CNIC spec, as per: http://www.neuronland.org/NLMorphologyConverter/MorphologyFormats/SWC/Spec.html
 #[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Copy, Clone)]
-enum StructureIdentifier {
+pub(crate) enum StructureIdentifier {
     Undefined,
     Soma,
     Axon,
@@ -36,13 +36,13 @@ impl From<u8> for StructureIdentifier {
 }
 
 #[derive(Copy, Clone)]
-struct Node {
+pub(crate) struct Node {
     node_id: u64,
     structured_identifier: StructureIdentifier,
     x_pos: f64,
     y_pos: f64,
     z_pos: f64,
-    radius: u64,
+    radius: f64,
     parent_id: u64,
 }
 
@@ -76,7 +76,7 @@ pub fn swc_reader(
     strict: Option<bool>,
     write_path: Option<String>,
 ) -> Result<Vec<Node>, String> {
-    let f = File::open(read_path).unwrap();
+    let f = File::open(read_path).map_err(|x| format!("No such read path"));
 
     let lines: Vec<String> = BufReader::new(f)
         .lines()
@@ -137,7 +137,9 @@ pub fn swc_reader(
     }
 
     // Find root node (parent_id == 0)
-    let root = nodes_vec.iter().find(|n| n.parent_id == 0)
+    let root = nodes_vec
+        .iter()
+        .find(|n| n.parent_id == 0)
         .ok_or("No root node found (parent_id == 0)")?;
 
     let mut sorted_node_ids: Vec<u64> = Vec::new();
@@ -243,7 +245,9 @@ pub fn swc_reader(
     info!("Processed {} nodes", remapped_nodes.len());
 
     if !zero_radius_count.is_empty() {
-        info!("SWC Label Convention: 0=undefined, 1=soma, 2=axon, 3=basal dendrite, 4=apical dendrite, 5=fork, 6=end");
+        info!(
+            "SWC Label Convention: 0=undefined, 1=soma, 2=axon, 3=basal dendrite, 4=apical dendrite, 5=fork, 6=end"
+        );
         info!("Fixed zero-radius points by type: {:?}", zero_radius_count);
     }
 
