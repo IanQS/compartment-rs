@@ -5,7 +5,7 @@ use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::fs::File;
 use std::hash::{Hash, Hasher};
-use std::io::{self, BufRead, BufReader};
+use std::io::{BufRead, BufReader};
 
 /// We use the CNIC spec, as per: http://www.neuronland.org/NLMorphologyConverter/MorphologyFormats/SWC/Spec.html
 #[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Copy, Clone)]
@@ -88,11 +88,13 @@ pub fn swc_reader(
         .iter()
         .map(|line| {
             let mut v = line.split_whitespace();
-            let node_id = v.next().unwrap().parse::<u64>().unwrap() + 1;
+            let node_id = v.next().unwrap().parse::<u64>().unwrap();
             let structured_identifier: StructureIdentifier =
                 v.next().unwrap().parse::<u8>().unwrap().into();
 
-            let parent_id = (v.next().unwrap().parse::<i64>().unwrap() + 1) as u64;
+            // Parse parent_id: -1 in file becomes 0 (temporary, will be self-referencing for root)
+            let parent_id_raw = v.next().unwrap().parse::<i64>().unwrap();
+            let parent_id = if parent_id_raw == -1 { 0 } else { parent_id_raw as u64 };
             let node = Node {
                 node_id,
                 structured_identifier,
@@ -111,7 +113,6 @@ pub fn swc_reader(
                 if structured_identifier != StructureIdentifier::EndPoint && strict.unwrap_or(false)
                 {
                     return Err("Zero-radius for non-endpoint");
-                } else {
                 }
             }
             Ok(node)
@@ -168,10 +169,10 @@ pub fn swc_reader(
         }
     }
 
-    // Create old_id -> new_id mapping (sequential starting at 1)
+    // Create old_id -> new_id mapping (sequential starting at 0)
     let mut old_to_new_id: HashMap<u64, u64> = HashMap::new();
     for (new_id, old_id) in sorted_node_ids.iter().enumerate() {
-        old_to_new_id.insert(*old_id, (new_id + 1) as u64);
+        old_to_new_id.insert(*old_id, new_id as u64);
     }
 
     // Track statistics
@@ -183,20 +184,20 @@ pub fn swc_reader(
     // Map backward from dendrites -> Soma
     let mut child_parent_map: HashMap<u64, Vec<u64>> = HashMap::new();
     // Remap nodes with new sequential IDs and fix radii
-    let mut remapped_nodes: Vec<Node> = sorted_node_ids
+    let remapped_nodes: Vec<Node> = sorted_node_ids
         .iter()
         .map(|old_id| {
             let mut node = nodes_by_id[old_id];
             let new_id = old_to_new_id[old_id];
 
-            // Remap parent ID
+            node.node_id = new_id;
+
+            // Remap parent ID: root node becomes self-referencing
             node.parent_id = if node.parent_id == 0 {
-                0
+                new_id // Root points to itself
             } else {
                 *old_to_new_id.get(&node.parent_id).unwrap_or(&0)
             };
-
-            node.node_id = new_id;
 
             // Fix radius if needed
             let type_str = format!("{:?}", node.structured_identifier);
@@ -228,15 +229,16 @@ pub fn swc_reader(
         output.push_str("# Processed SWC file\n");
 
         for node in &remapped_nodes {
-            let parent_id = if node.parent_id == 0 {
+            // Root node (self-referencing) should be written as -1
+            let parent_id = if node.parent_id == node.node_id {
                 -1i64
             } else {
-                (node.parent_id - 1) as i64
+                node.parent_id as i64
             };
 
             output.push_str(&format!(
                 "{} {} {:.2} {:.2} {:.2} {} {}\n",
-                node.node_id - 1,
+                node.node_id,
                 match node.structured_identifier {
                     StructureIdentifier::Undefined => 0,
                     StructureIdentifier::Soma => 1,
