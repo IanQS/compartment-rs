@@ -37,13 +37,13 @@ impl From<u8> for StructureIdentifier {
 
 #[derive(Copy, Clone)]
 pub(crate) struct Node {
-    node_id: u64,
-    structured_identifier: StructureIdentifier,
-    x_pos: f64,
-    y_pos: f64,
-    z_pos: f64,
-    radius: f64,
-    parent_id: u64,
+    pub node_id: u64,
+    pub structured_identifier: StructureIdentifier,
+    pub x_pos: f64,
+    pub y_pos: f64,
+    pub z_pos: f64,
+    pub radius: f64,
+    pub parent_id: u64,
 }
 
 impl Eq for Node {}
@@ -75,8 +75,8 @@ pub fn swc_reader(
     emit_warnings: Option<bool>,
     strict: Option<bool>,
     write_path: Option<String>,
-) -> Result<Vec<Node>, String> {
-    let f = File::open(read_path).map_err(|x| format!("No such read path"));
+) -> Result<(Vec<Node>, HashMap<u64, Vec<u64>>, HashMap<u64, Vec<u64>>), String> {
+    let f = File::open(read_path).unwrap(); //.map_err(|x| format!("No such read path"));
 
     let lines: Vec<String> = BufReader::new(f)
         .lines()
@@ -91,16 +91,19 @@ pub fn swc_reader(
             let node_id = v.next().unwrap().parse::<u64>().unwrap() + 1;
             let structured_identifier: StructureIdentifier =
                 v.next().unwrap().parse::<u8>().unwrap().into();
+
+            let parent_id = (v.next().unwrap().parse::<i64>().unwrap() + 1) as u64;
             let node = Node {
                 node_id,
                 structured_identifier,
                 x_pos: v.next().unwrap().parse::<f64>().unwrap(),
                 y_pos: v.next().unwrap().parse::<f64>().unwrap(),
                 z_pos: v.next().unwrap().parse::<f64>().unwrap(),
-                radius: v.next().unwrap().parse::<u64>().unwrap(),
-                parent_id: (v.next().unwrap().parse::<i64>().unwrap() + 1) as u64,
+                radius: v.next().unwrap().parse::<f64>().unwrap(),
+                parent_id,
             };
-            if node.radius == 0 && emit_warnings.unwrap_or(true) {
+
+            if node.radius == 0.0 && emit_warnings.unwrap_or(true) {
                 warn!(
                     "Zero-radius for section ID: {} of type: {:?}",
                     node_id, structured_identifier
@@ -175,6 +178,10 @@ pub fn swc_reader(
     let mut zero_radius_count: HashMap<String, usize> = HashMap::new();
     let mut label_breakdown: HashMap<String, usize> = HashMap::new();
 
+    // Map forward from the soma -> dendrites
+    let mut parent_child_map: HashMap<u64, Vec<u64>> = HashMap::new();
+    // Map backward from dendrites -> Soma
+    let mut child_parent_map: HashMap<u64, Vec<u64>> = HashMap::new();
     // Remap nodes with new sequential IDs and fix radii
     let mut remapped_nodes: Vec<Node> = sorted_node_ids
         .iter()
@@ -193,13 +200,23 @@ pub fn swc_reader(
 
             // Fix radius if needed
             let type_str = format!("{:?}", node.structured_identifier);
-            if node.radius == 0 {
+            if node.radius == 0.0 {
                 *zero_radius_count.entry(type_str.clone()).or_insert(0) += 1;
-                node.radius = 1;
+                node.radius = 1.0;
             }
 
             // Track label statistics
             *label_breakdown.entry(type_str).or_insert(0) += 1;
+
+            // parent_child_map.insert(node.parent_id, node.node_id);
+            parent_child_map
+                .entry(node.parent_id)
+                .or_insert_with(Vec::new)
+                .push(node.node_id);
+            child_parent_map
+                .entry(node.node_id)
+                .or_insert_with(Vec::new)
+                .push(node.parent_id);
 
             node
         })
@@ -253,5 +270,5 @@ pub fn swc_reader(
 
     info!("Node type breakdown: {:?}", label_breakdown);
 
-    Ok(remapped_nodes)
+    Ok((remapped_nodes, parent_child_map, child_parent_map))
 }
