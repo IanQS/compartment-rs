@@ -92,16 +92,21 @@ pub fn swc_reader(
             let structured_identifier: StructureIdentifier =
                 v.next().unwrap().parse::<u8>().unwrap().into();
 
+            let x_pos = v.next().unwrap().parse::<f64>().unwrap();
+            let y_pos = v.next().unwrap().parse::<f64>().unwrap();
+            let z_pos = v.next().unwrap().parse::<f64>().unwrap();
+            let radius = v.next().unwrap().parse::<f64>().unwrap();
+
             // Parse parent_id: -1 in file becomes 0 (temporary, will be self-referencing for root)
             let parent_id_raw = v.next().unwrap().parse::<i64>().unwrap();
             let parent_id = if parent_id_raw == -1 { 0 } else { parent_id_raw as u64 };
             let node = Node {
                 node_id,
                 structured_identifier,
-                x_pos: v.next().unwrap().parse::<f64>().unwrap(),
-                y_pos: v.next().unwrap().parse::<f64>().unwrap(),
-                z_pos: v.next().unwrap().parse::<f64>().unwrap(),
-                radius: v.next().unwrap().parse::<f64>().unwrap(),
+                x_pos,
+                y_pos,
+                z_pos,
+                radius,
                 parent_id,
             };
 
@@ -274,3 +279,64 @@ pub fn swc_reader(
 
     Ok((remapped_nodes, parent_child_map, child_parent_map))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_swc_reader_basic() {
+        let read_path = "data/basic.swc".to_string();
+        let emit_warnings = Some(true);
+        let strict = Some(true);
+        let write_path = None;
+
+        let result = swc_reader(read_path, emit_warnings, strict, write_path);
+        assert!(result.is_ok());
+
+        let (nodes, parent_child_map, child_parent_map) = result.unwrap();
+        println!("Nodes length: {}", nodes.len());
+        println!("Nodes: {:?}", nodes.iter().map(|n| n.node_id).collect::<Vec<_>>());
+        
+        // basic.swc has 5 nodes
+        assert_eq!(nodes.len(), 5);
+
+        // Check assigned IDs
+        for i in 0..5 {
+            assert_eq!(nodes[i].node_id, i as u64);
+        }
+
+        // Root node self-referencing check
+        let root_node = &nodes[0];
+        assert_eq!(root_node.parent_id, root_node.node_id);
+
+        // Check tree structure relationships based on old IDs mapped to new IDs
+        // old id 1 (new 0) is root
+        // old id 2 (new 1) -> old id 1 (new 0)
+        // old id 3 (new 2) -> old id 1 (new 0)
+        // old id 4 (new 3) -> old id 1 (new 0)
+        // old id 5 (new 4) -> old id 4 (new 3)
+        assert_eq!(nodes[1].parent_id, 0); // node 2 parent is 1
+        assert_eq!(nodes[2].parent_id, 0); // node 3 parent is 1
+        assert_eq!(nodes[3].parent_id, 0); // node 4 parent is 1
+        assert_eq!(nodes[4].parent_id, 3); // node 5 parent is 4
+
+        // Check map sizes
+        // parent 0 -> children 0 (self), 1, 2, 3
+        // parent 3 -> child 4
+        assert_eq!(parent_child_map.get(&0).unwrap().len(), 4);
+        assert!(parent_child_map.get(&0).unwrap().contains(&0));
+        assert!(parent_child_map.get(&0).unwrap().contains(&1));
+        assert!(parent_child_map.get(&0).unwrap().contains(&2));
+        assert!(parent_child_map.get(&0).unwrap().contains(&3));
+        
+        assert_eq!(parent_child_map.get(&3).unwrap().len(), 1);
+        assert!(parent_child_map.get(&3).unwrap().contains(&4));
+
+        assert_eq!(child_parent_map.get(&1).unwrap()[0], 0);
+        assert_eq!(child_parent_map.get(&2).unwrap()[0], 0);
+        assert_eq!(child_parent_map.get(&3).unwrap()[0], 0);
+        assert_eq!(child_parent_map.get(&4).unwrap()[0], 3);
+    }
+}
+
