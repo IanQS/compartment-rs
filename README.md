@@ -7,6 +7,18 @@
 
 A simple Neuroscience compartment modeling library, written in Rust with Python bindings. Aims to keep circuits "local" instead of global, which should, in theory, allow multiple simulations within a single process.
 
+## Resources:
+
+### Neuroscience
+
+[mrgreene09 - computational neuroscience textbook (Hodgkin Huxley Chapter)](https://mrgreene09.github.io/computational-neuroscience-textbook/Ch4.html)
+
+- great quick reference
+
+[Dayan and Abbott - Theoretical Neuroscience](https://boulderschool.yale.edu/sites/default/files/files/DayanAbbott.pdf)
+
+- more in-depth information
+
 ## Motivation
 
 I don't know as much as I should about neuroscience computational models. This is my way of trying to force myself to build something to learn, instead of just reading a textbook and not applying my knowledge.
@@ -15,12 +27,21 @@ I don't know as much as I should about neuroscience computational models. This i
 
 - [x] `.swc` reader that topologically sorts the input `.swc` file and warns for 0-radius components.
 
-- [ ] constructs compartment models via a multi-linked list.
+- [x] constructs compartment models via a multi-linked list.
 
-- [ ] Will support `d-lambda` rule as outlined in the [NEURON Book - Chapter 5](https://www.fuw.edu.pl/~suffa/Modelowanie/NEURON%20-%20Book/chap5.pdf), page 28, under `d-lambda` rule
+- [ ] Implement branching, where we coalesce multiple compartment models into higher-level "branches"
+  - [x] Will support `d-lambda` rule as outlined in the [NEURON Book - Chapter 5](https://www.fuw.edu.pl/~suffa/Modelowanie/NEURON%20-%20Book/chap5.pdf), page 28, under `d-lambda` rule
   - Will take an existing multi-linked list and "resize" it
 
-- [ ] Hodgkin-Huxley Dynamics
+- [ ] Dynamics
+  - [ ] Hodgkin-Huxley Dynamics
+  - [ ] LIF Dynamics
+  - [ ] Passive Membrane Potential
+
+- [ ] Synapse Dynamics
+  - [ ] Exp2Syn
+
+- [ ] Applying Currents
 
 ## SWC Convention
 

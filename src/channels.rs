@@ -1,35 +1,41 @@
-///
-/// The channels defined the dynamics that take place within the compartment
-/// Some based on: https://nrn.readthedocs.io/en/9.0.0/tutorials/scripting-neuron-basics.html#Biophysical-mechanisms
-///
-
-#[derive(Default)]
+#[derive(Copy, Clone, Default)]
 pub enum ChannelType {
     #[default]
     Unspecified,
-    Passive(Passive),
-    Extracellular(Extracellular),
-    HodgkinHuxley(HodgkinHuxley),
+    Sodium(Sodium),
+    Potassium(Potassium),
+    Leak(Leak),
 }
 
-#[derive(Default)]
-pub struct Channel {
-    channel_type: ChannelType,
-    resistance: f64,
-    capacitance: f64,
-    conductance: f64,
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Channel {
+    pub resistance: f64,
+    pub capacitance: f64,
+    pub conductance: f64,
+    pub axial_resistivity: f64,
 }
 
-pub trait Dynamics {
-    fn new() -> Self {}
-    fn propagate(self) -> () {}
-    fn update(self) -> () {}
+#[derive(Copy, Clone, Default)]
+pub struct Sodium {
+    pub channel: Channel,
+}
+#[derive(Copy, Clone, Default)]
+pub struct Potassium {
+    pub channel: Channel,
+}
+#[derive(Copy, Clone, Default)]
+pub struct Leak {
+    pub channel: Channel,
 }
 
-pub struct HodgkinHuxley {}
+pub trait ChannelDynamics {
+    // Conductance of the voltage-gated channel
+    fn conductance(voltage: f64) {}
 
-impl Dynamics for HodgkinHuxley {}
-pub struct Extracellular {}
-impl Dynamics for Extracellular {}
-pub struct Passive {}
-impl Dynamics for Passive {}
+    // the rate constants for each gating variable
+    fn rate_constant(voltage: f64) {}
+}
+
+impl ChannelDynamics for Sodium {}
+impl ChannelDynamics for Potassium {}
+impl ChannelDynamics for Leak {}
