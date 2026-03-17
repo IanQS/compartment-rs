@@ -19,6 +19,10 @@ A simple Neuroscience compartment modeling library, written in Rust with Python 
 
 - more in-depth information
 
+[Neuronal Dynamics](https://neuronaldynamics.epfl.ch/)
+
+- I'd say around the level of Dayan and Abbott, even if it seems more approachable; this book seems more like a resources to get grad students started rather than a deep-dive into the various topics
+
 ## Motivation
 
 I don't know as much as I should about neuroscience computational models. This is my way of trying to force myself to build something to learn, instead of just reading a textbook and not applying my knowledge.

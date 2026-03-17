@@ -14,6 +14,8 @@ pub struct Compartment {
 
     length: f64,
     diam: f64,
+    pub capacitance: f64,
+    pub axial_resistivity: f64,
 
     channel: Channel,
 }
