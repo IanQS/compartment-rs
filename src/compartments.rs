@@ -92,6 +92,8 @@ impl Compartments {
                 children_idxs: children,
                 length,
                 diam: node.radius * 2.0,
+                capacitance: 1.0,         // typical default 1.0 uF/cm^2
+                axial_resistivity: 100.0, // typical default 100.0 ohm*cm
                 channel: Channel::default(),
             };
 
@@ -156,6 +158,8 @@ impl Compartments {
                         children_idxs,
                         length: new_length,
                         diam: compartment.diam,
+                        capacitance: compartment.capacitance,
+                        axial_resistivity: compartment.axial_resistivity,
                         channel: compartment.channel,
                     };
 
@@ -204,10 +208,10 @@ mod tests {
         // length = sqrt(3^2 + 4^2 + 5^2) = sqrt(50) = 7.071...
         assert!((compartments.components[1].length - 50.0_f64.sqrt()).abs() < 1e-6);
 
-        // Verify some channel properties are defaults
+        // Verify some properties are defaults
         assert_eq!(
             compartments.components[0].axial_resistivity,
-            Compartment::default().axial_resistivity
+            100.0
         );
     }
 

@@ -10,7 +10,7 @@ pub enum ChannelType {
 }
 
 #[derive(Clone, Copy, Default)]
-pub(crate) struct Channel {
+pub struct Channel {
     pub g_bar: f64,
     pub e_rev: f64,
 }
@@ -138,28 +138,28 @@ mod tests {
     #[test]
     fn test_alpha_beta_at_rest() {
         let alpha_n = Potassium::alpha_n(V_REST);
-        let beta_n  = Potassium::beta_n(V_REST);
+        let beta_n = Potassium::beta_n(V_REST);
         let alpha_m = Sodium::alpha_m(V_REST);
-        let beta_m  = Sodium::beta_m(V_REST);
+        let beta_m = Sodium::beta_m(V_REST);
         let alpha_h = Sodium::alpha_h(V_REST);
-        let beta_h  = Sodium::beta_h(V_REST);
+        let beta_h = Sodium::beta_h(V_REST);
 
         assert!((alpha_n - 0.049).abs() < TOL, "alpha_n={alpha_n:.4}");
-        assert!((beta_n  - 0.13 ).abs() < TOL, "beta_n={beta_n:.4}");
-        assert!((alpha_m - 0.18 ).abs() < TOL, "alpha_m={alpha_m:.4}");
-        assert!((beta_m  - 4.73 ).abs() < TOL, "beta_m={beta_m:.4}");
-        assert!((alpha_h - 0.08 ).abs() < TOL, "alpha_h={alpha_h:.4}");
-        assert!((beta_h  - 0.036).abs() < TOL, "beta_h={beta_h:.4}");
+        assert!((beta_n - 0.13).abs() < TOL, "beta_n={beta_n:.4}");
+        assert!((alpha_m - 0.18).abs() < TOL, "alpha_m={alpha_m:.4}");
+        assert!((beta_m - 4.73).abs() < TOL, "beta_m={beta_m:.4}");
+        assert!((alpha_h - 0.08).abs() < TOL, "alpha_h={alpha_h:.4}");
+        assert!((beta_h - 0.036).abs() < TOL, "beta_h={beta_h:.4}");
     }
 
     #[test]
     fn test_steady_state_gating_at_rest() {
         let alpha_n = Potassium::alpha_n(V_REST);
-        let beta_n  = Potassium::beta_n(V_REST);
+        let beta_n = Potassium::beta_n(V_REST);
         let alpha_m = Sodium::alpha_m(V_REST);
-        let beta_m  = Sodium::beta_m(V_REST);
+        let beta_m = Sodium::beta_m(V_REST);
         let alpha_h = Sodium::alpha_h(V_REST);
-        let beta_h  = Sodium::beta_h(V_REST);
+        let beta_h = Sodium::beta_h(V_REST);
 
         let n_inf = alpha_n / (alpha_n + beta_n);
         let m_inf = alpha_m / (alpha_m + beta_m);
