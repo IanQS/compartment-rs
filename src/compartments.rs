@@ -112,8 +112,8 @@ impl Compartments {
         let mut current_idx: u64 = 0;
 
         for compartment in self.components {
-            let r_a = compartment.channel.axial_resistivity;
-            let c_m = compartment.channel.capacitance;
+            let r_a = compartment.axial_resistivity;
+            let c_m = compartment.capacitance;
             let lambda_f = 1e5 * (compartment.diam / (4.0 * PI * frequency * c_m * r_a)).sqrt();
             let n_comp = (((compartment.length / (d_lambda * lambda_f) + 0.9) / 2.0).floor() * 2.0
                 + 1.0) as u64;
@@ -206,8 +206,8 @@ mod tests {
 
         // Verify some channel properties are defaults
         assert_eq!(
-            compartments.components[0].channel.axial_resistivity,
-            Channel::default().axial_resistivity
+            compartments.components[0].axial_resistivity,
+            Compartment::default().axial_resistivity
         );
     }
 
