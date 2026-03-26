@@ -2,6 +2,7 @@ use pyo3::prelude::*;
 mod channels;
 mod compartments;
 mod dynamics;
+mod sections;
 mod swc_reader;
 
 /// A Python module implemented in Rust.

@@ -7,6 +7,10 @@ use std::fs::File;
 use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader};
 
+type ParentChildMap = HashMap<u64, Vec<u64>>;
+
+type ChildParentMap = HashMap<u64, Vec<u64>>;
+
 /// We use the CNIC spec, as per: http://www.neuronland.org/NLMorphologyConverter/MorphologyFormats/SWC/Spec.html
 #[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Copy, Clone)]
 pub(crate) enum StructureIdentifier {
@@ -75,31 +79,66 @@ pub fn swc_reader(
     emit_warnings: Option<bool>,
     strict: Option<bool>,
     write_path: Option<String>,
-) -> Result<(Vec<Node>, HashMap<u64, Vec<u64>>, HashMap<u64, Vec<u64>>), String> {
-    let f = File::open(read_path).unwrap(); //.map_err(|x| format!("No such read path"));
+) -> Result<(Vec<Node>, ParentChildMap, ChildParentMap), String> {
+    let f = File::open(&read_path).map_err(|e| format!("failed to open {read_path}: {e}"))?;
 
     let lines: Vec<String> = BufReader::new(f)
         .lines()
-        .filter_map(|line| line.ok())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("failed while reading {read_path}: {e}"))?
+        .into_iter()
         .filter(|line| !line.starts_with('#'))
         .collect();
 
     let nodes_vec: Vec<Node> = lines
         .iter()
-        .map(|line| {
+        .enumerate()
+        .map(|(line_idx, line)| {
             let mut v = line.split_whitespace();
-            let node_id = v.next().unwrap().parse::<u64>().unwrap();
-            let structured_identifier: StructureIdentifier =
-                v.next().unwrap().parse::<u8>().unwrap().into();
+            let node_id = v
+                .next()
+                .ok_or_else(|| format!("line {}: missing node_id", line_idx + 1))?
+                .parse::<u64>()
+                .map_err(|e| format!("line {}: invalid node_id: {e}", line_idx + 1))?;
+            let structured_identifier: StructureIdentifier = v
+                .next()
+                .ok_or_else(|| format!("line {}: missing structure identifier", line_idx + 1))?
+                .parse::<u8>()
+                .map_err(|e| format!("line {}: invalid structure identifier: {e}", line_idx + 1))?
+                .into();
 
-            let x_pos = v.next().unwrap().parse::<f64>().unwrap();
-            let y_pos = v.next().unwrap().parse::<f64>().unwrap();
-            let z_pos = v.next().unwrap().parse::<f64>().unwrap();
-            let radius = v.next().unwrap().parse::<f64>().unwrap();
+            let x_pos = v
+                .next()
+                .ok_or_else(|| format!("line {}: missing x_pos", line_idx + 1))?
+                .parse::<f64>()
+                .map_err(|e| format!("line {}: invalid x_pos: {e}", line_idx + 1))?;
+            let y_pos = v
+                .next()
+                .ok_or_else(|| format!("line {}: missing y_pos", line_idx + 1))?
+                .parse::<f64>()
+                .map_err(|e| format!("line {}: invalid y_pos: {e}", line_idx + 1))?;
+            let z_pos = v
+                .next()
+                .ok_or_else(|| format!("line {}: missing z_pos", line_idx + 1))?
+                .parse::<f64>()
+                .map_err(|e| format!("line {}: invalid z_pos: {e}", line_idx + 1))?;
+            let radius = v
+                .next()
+                .ok_or_else(|| format!("line {}: missing radius", line_idx + 1))?
+                .parse::<f64>()
+                .map_err(|e| format!("line {}: invalid radius: {e}", line_idx + 1))?;
 
             // Parse parent_id: -1 in file becomes 0 (temporary, will be self-referencing for root)
-            let parent_id_raw = v.next().unwrap().parse::<i64>().unwrap();
-            let parent_id = if parent_id_raw == -1 { 0 } else { parent_id_raw as u64 };
+            let parent_id_raw = v
+                .next()
+                .ok_or_else(|| format!("line {}: missing parent_id", line_idx + 1))?
+                .parse::<i64>()
+                .map_err(|e| format!("line {}: invalid parent_id: {e}", line_idx + 1))?;
+            let parent_id = if parent_id_raw == -1 {
+                0
+            } else {
+                parent_id_raw as u64
+            };
             let node = Node {
                 node_id,
                 structured_identifier,
@@ -117,12 +156,24 @@ pub fn swc_reader(
                 );
                 if structured_identifier != StructureIdentifier::EndPoint && strict.unwrap_or(false)
                 {
-                    return Err("Zero-radius for non-endpoint");
+                    return Err(format!(
+                        "line {}: zero-radius for non-endpoint node {}",
+                        line_idx + 1,
+                        node_id
+                    ));
                 }
             }
             Ok(node)
         })
         .collect::<Result<Vec<Node>, _>>()?;
+
+    let roots: Vec<&Node> = nodes_vec.iter().filter(|n| n.parent_id == 0).collect();
+    if roots.len() != 1 {
+        return Err(format!(
+            "expected exactly one root (-1 parent in SWC), found {}",
+            roots.len()
+        ));
+    }
 
     // Quick debug logs for the count of the types
     let accum_types: HashMap<StructureIdentifier, usize> = nodes_vec
@@ -135,100 +186,22 @@ pub fn swc_reader(
 
     // Create lookup map: node_id -> Node
     let nodes_by_id: HashMap<u64, Node> = nodes_vec.iter().map(|n| (n.node_id, *n)).collect();
+    for node in &nodes_vec {
+        if node.parent_id != 0 && !nodes_by_id.contains_key(&node.parent_id) {
+            return Err(format!(
+                "node {} references missing parent {}",
+                node.node_id, node.parent_id
+            ));
+        }
+    }
 
     ////////////////////////
     // BFS traversal for topological order
     ////////////////////////
     // Construct mapping from parent to children for the BFS
-    let mut children: HashMap<u64, Vec<u64>> = HashMap::new();
-    for n in &nodes_vec {
-        children.entry(n.parent_id).or_default().push(n.node_id);
-    }
-
-    // Find root node (parent_id == 0)
-    let root = nodes_vec
-        .iter()
-        .find(|n| n.parent_id == 0)
-        .ok_or("No root node found (parent_id == 0)")?;
-
-    let mut sorted_node_ids: Vec<u64> = Vec::new();
-    let mut queue: VecDeque<u64> = VecDeque::new();
-    queue.push_back(root.node_id);
-    let mut visited: HashSet<u64> = HashSet::new();
-
-    while let Some(node_id) = queue.pop_front() {
-        if visited.contains(&node_id) {
-            warn!("Cycle detected at {}", node_id);
-            continue;
-        }
-        visited.insert(node_id);
-        sorted_node_ids.push(node_id);
-
-        // Add children to queue
-        if let Some(child_ids) = children.get(&node_id) {
-            for &child_id in child_ids {
-                if !visited.contains(&child_id) {
-                    queue.push_back(child_id);
-                }
-            }
-        }
-    }
-
-    // Create old_id -> new_id mapping (sequential starting at 0)
-    let mut old_to_new_id: HashMap<u64, u64> = HashMap::new();
-    for (new_id, old_id) in sorted_node_ids.iter().enumerate() {
-        old_to_new_id.insert(*old_id, new_id as u64);
-    }
-
-    // Track statistics
-    let mut zero_radius_count: HashMap<String, usize> = HashMap::new();
-    let mut label_breakdown: HashMap<String, usize> = HashMap::new();
-
-    // Map forward from the soma -> dendrites
-    let mut parent_child_map: HashMap<u64, Vec<u64>> = HashMap::new();
-    // Map backward from dendrites -> Soma
-    let mut child_parent_map: HashMap<u64, Vec<u64>> = HashMap::new();
-    // Remap nodes with new sequential IDs and fix radii
-    let remapped_nodes: Vec<Node> = sorted_node_ids
-        .iter()
-        .map(|old_id| {
-            let mut node = nodes_by_id[old_id];
-            let new_id = old_to_new_id[old_id];
-
-            node.node_id = new_id;
-
-            // Remap parent ID: root node becomes self-referencing
-            node.parent_id = if node.parent_id == 0 {
-                new_id // Root points to itself
-            } else {
-                *old_to_new_id.get(&node.parent_id).unwrap_or(&0)
-            };
-
-            // Fix radius if needed
-            let type_str = format!("{:?}", node.structured_identifier);
-            if node.radius == 0.0 {
-                *zero_radius_count.entry(type_str.clone()).or_insert(0) += 1;
-                node.radius = 1.0;
-            }
-
-            // Track label statistics
-            *label_breakdown.entry(type_str).or_insert(0) += 1;
-
-            // parent_child_map.insert(node.parent_id, node.node_id);
-            parent_child_map
-                .entry(node.parent_id)
-                .or_insert_with(Vec::new)
-                .push(node.node_id);
-            child_parent_map
-                .entry(node.node_id)
-                .or_insert_with(Vec::new)
-                .push(node.parent_id);
-
-            node
-        })
-        .collect();
-
     // Write to file if requested
+    let bfs_res = bfs(&nodes_vec, roots, strict, nodes_by_id)?;
+    let (remapped_nodes, parent_child_map, child_parent_map) = bfs_res;
     if let Some(output_path) = write_path {
         let mut output = String::new();
         output.push_str("# Processed SWC file\n");
@@ -262,10 +235,113 @@ pub fn swc_reader(
             ));
         }
 
-        fs::write(output_path, output).unwrap();
+        fs::write(&output_path, output)
+            .map_err(|e| format!("failed to write processed SWC to {output_path}: {e}"))?;
+    }
+    Ok((remapped_nodes, parent_child_map, child_parent_map))
+}
+
+fn bfs(
+    nodes_vec: &Vec<Node>,
+    roots: Vec<&Node>,
+    strict: Option<bool>,
+    nodes_by_id: HashMap<u64, Node>,
+) -> Result<(Vec<Node>, ParentChildMap, ChildParentMap), String> {
+    let mut children: HashMap<u64, Vec<u64>> = HashMap::new();
+    for n in nodes_vec {
+        children.entry(n.parent_id).or_default().push(n.node_id);
     }
 
-    // Log summary
+    // Find root node (parent_id == 0)
+    let root = roots[0];
+
+    let mut sorted_node_ids: Vec<u64> = Vec::new();
+    let mut queue: VecDeque<u64> = VecDeque::new();
+    queue.push_back(root.node_id);
+    let mut visited: HashSet<u64> = HashSet::new();
+
+    while let Some(node_id) = queue.pop_front() {
+        if visited.contains(&node_id) {
+            warn!("Cycle detected at {}", node_id);
+            continue;
+        }
+        visited.insert(node_id);
+        sorted_node_ids.push(node_id);
+
+        // Add children to queue
+        if let Some(child_ids) = children.get(&node_id) {
+            for &child_id in child_ids {
+                if !visited.contains(&child_id) {
+                    queue.push_back(child_id);
+                }
+            }
+        }
+    }
+    if visited.len() != nodes_vec.len() && strict.unwrap_or(false) {
+        return Err(format!(
+            "graph is disconnected: visited {} of {} nodes from root {}",
+            visited.len(),
+            nodes_vec.len(),
+            root.node_id
+        ));
+    }
+
+    // Create old_id -> new_id mapping (sequential starting at 0)
+    let mut old_to_new_id: HashMap<u64, u64> = HashMap::new();
+    for (new_id, old_id) in sorted_node_ids.iter().enumerate() {
+        old_to_new_id.insert(*old_id, new_id as u64);
+    }
+
+    // Track statistics
+    let mut zero_radius_count: HashMap<String, usize> = HashMap::new();
+    let mut label_breakdown: HashMap<String, usize> = HashMap::new();
+
+    // Map forward from the soma -> dendrites
+    let mut parent_child_map: HashMap<u64, Vec<u64>> = HashMap::new();
+    // Map backward from dendrites -> Soma
+    let mut child_parent_map: HashMap<u64, Vec<u64>> = HashMap::new();
+    // Remap nodes with new sequential IDs and fix radii
+    let remapped_nodes: Vec<Node> = sorted_node_ids
+        .iter()
+        .map(|old_id| {
+            let mut node = nodes_by_id[old_id];
+            let new_id = old_to_new_id[old_id];
+
+            node.node_id = new_id;
+
+            // Remap parent ID: root node becomes self-referencing
+            node.parent_id = if node.parent_id == 0 {
+                new_id // Root points to itself
+            } else {
+                *old_to_new_id.get(&node.parent_id).ok_or_else(|| {
+                    format!("missing remapped parent id for node {}", node.node_id)
+                })?
+            };
+
+            // Fix radius if needed
+            let type_str = format!("{:?}", node.structured_identifier);
+            if node.radius == 0.0 {
+                *zero_radius_count.entry(type_str.clone()).or_insert(0) += 1;
+                node.radius = 1.0;
+            }
+
+            // Track label statistics
+            *label_breakdown.entry(type_str).or_insert(0) += 1;
+
+            // parent_child_map.insert(node.parent_id, node.node_id);
+            parent_child_map
+                .entry(node.parent_id)
+                .or_insert_with(Vec::new)
+                .push(node.node_id);
+            child_parent_map
+                .entry(node.node_id)
+                .or_insert_with(Vec::new)
+                .push(node.parent_id);
+
+            Ok(node)
+        })
+        .collect::<Result<Vec<Node>, String>>()?;
+
     info!("Processed {} nodes", remapped_nodes.len());
 
     if !zero_radius_count.is_empty() {
@@ -283,6 +359,18 @@ pub fn swc_reader(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_swc_path(name: &str) -> String {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir()
+            .join(format!("compartment_rs_{name}_{nanos}.swc"))
+            .to_string_lossy()
+            .to_string()
+    }
 
     #[test]
     fn test_swc_reader_basic() {
@@ -296,8 +384,11 @@ mod tests {
 
         let (nodes, parent_child_map, child_parent_map) = result.unwrap();
         println!("Nodes length: {}", nodes.len());
-        println!("Nodes: {:?}", nodes.iter().map(|n| n.node_id).collect::<Vec<_>>());
-        
+        println!(
+            "Nodes: {:?}",
+            nodes.iter().map(|n| n.node_id).collect::<Vec<_>>()
+        );
+
         // basic.swc has 5 nodes
         assert_eq!(nodes.len(), 5);
 
@@ -329,7 +420,7 @@ mod tests {
         assert!(parent_child_map.get(&0).unwrap().contains(&1));
         assert!(parent_child_map.get(&0).unwrap().contains(&2));
         assert!(parent_child_map.get(&0).unwrap().contains(&3));
-        
+
         assert_eq!(parent_child_map.get(&3).unwrap().len(), 1);
         assert!(parent_child_map.get(&3).unwrap().contains(&4));
 
@@ -338,5 +429,26 @@ mod tests {
         assert_eq!(child_parent_map.get(&3).unwrap()[0], 0);
         assert_eq!(child_parent_map.get(&4).unwrap()[0], 3);
     }
-}
 
+    #[test]
+    fn test_swc_reader_rejects_missing_parent() {
+        let path = temp_swc_path("missing_parent");
+        let content = "1 1 0 0 0 1 -1\n2 3 1 0 0 1 999\n";
+        fs::write(&path, content).unwrap();
+
+        let result = swc_reader(path.clone(), Some(true), Some(false), None);
+        assert!(result.is_err());
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_swc_reader_rejects_disconnected_graph() {
+        let path = temp_swc_path("disconnected");
+        let content = "1 1 0 0 0 1 -1\n2 3 1 0 0 1 1\n3 3 5 0 0 1 -1\n";
+        fs::write(&path, content).unwrap();
+
+        let result = swc_reader(path.clone(), Some(true), Some(false), None);
+        assert!(result.is_err());
+        let _ = fs::remove_file(path);
+    }
+}
