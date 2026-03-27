@@ -2,6 +2,10 @@
   - [Motivation](#motivation)
   - [Features](#features)
   - [SWC Convention](#swc-convention)
+  - [Python Development](#python-development)
+    - [Dev tooling](#dev-tooling)
+    - [Running tests](#running-tests)
+    - [Validation against Jaxley](#validation-against-jaxley)
 
 # compartment-rs
 
@@ -51,6 +55,34 @@ I don't know as much as I should about neuroscience computational models. This i
 
 We use the convention set out by [Neuronland](http://www.neuronland.org/NLMorphologyConverter/MorphologyFormats/SWC/Spec.html), which seems to be the canonical one
 
-## Validation
 
-We run some validations against [Jaxley](https://jaxley.readthedocs.io/) and that code is contained in [jaxley_reference](./jaxley_reference)
+## Python Development
+
+Python **development** is managed via `uv` and is mostly just tests for ensuring correctness both as a sanity check (see [Validation against Jaxley](#validation-against-jaxley)) and to check that our built rust code is performing correctly. 
+
+If we build this right, python will just be a shim layer
+
+### Dev tooling
+
+Includes `ruff` (linting/formatting) and `basedpyright` (type checking):
+
+```sh
+uv sync --group dev
+```
+
+### Running tests
+
+```sh
+uv sync --group test
+pytest
+```
+
+### Validation against Jaxley
+
+The `validation` group installs [Jaxley](https://jaxley.readthedocs.io/), which requires Python >=3.10 and pulls in JAX. It is intentionally kept separate since it is not needed at runtime.
+
+```sh
+uv sync --group validation
+```
+
+Validation scripts live in [jaxley_reference](./jaxley_reference).

@@ -1,25 +1,30 @@
 [project]
 name = "compartment_rs"
-requires-python = ">=3.10"
+requires-python = ">=3.8"  # 3.10 is only needed for Jaxley. Realistically this could be lowered
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dynamic = ["version"]
+
 dependencies = [
-    "basedpyright>=1.38.4",
-    "jaxley>=0.13.0",
     "loguru>=0.7.3",
+]
+[dependency-groups]
+dev = [
+    "basedpyright>=1.38.4",
     "ruff>=0.15.8",
+]
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+validation = [
+    "jaxley>=0.13.0",
 ]
 
 [build-system]
 requires = ["maturin>=1.12,<2.0"]
 build-backend = "maturin"
 
-[dependency-groups]
-test = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-]
