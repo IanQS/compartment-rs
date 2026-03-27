@@ -57,8 +57,8 @@ impl Compartments {
                 children_idxs: section.children_ids,
                 length: section.length,
                 diam: section.mean_diam,
-                capacitance: 1.0,         // typical default 1.0 uF/cm^2
-                axial_resistivity: 100.0, // typical default 100.0 ohm*cm
+                capacitance: 1.0,          // typical default 1.0 uF/cm^2
+                axial_resistivity: 5000.0, // Jaxley default 5000.0 ohm*cm
                 channel: Channel::default(),
             };
 
@@ -165,7 +165,7 @@ mod tests {
         assert_eq!(compartments.components.len(), 4);
         assert_eq!(compartments.components[0].name, "Soma");
         // Verify some properties are defaults
-        assert_eq!(compartments.components[0].axial_resistivity, 100.0);
+        assert_eq!(compartments.components[0].axial_resistivity, 5000.0);
     }
 
     #[test]
@@ -183,13 +183,17 @@ mod tests {
             parent_child_map.clone(),
             child_parent_map.clone(),
         );
-        let original_count = compartments_1.components.len();
+        // morph_minimal.swc should produce 4 sections (matching Jaxley's 4 branches)
+        assert_eq!(compartments_1.components.len(), 4);
+
         let refined_compartments_1 = compartments_1.d_lambda_rule(100.0, 0.1);
-        assert!(refined_compartments_1.components.len() >= original_count);
+        // Jaxley: per-branch ncomps = [1, 1, 1, 1], total = 4
+        assert_eq!(refined_compartments_1.components.len(), 4);
 
         let compartments_2 =
             Compartments::from_sorted_nodes(nodes, parent_child_map, child_parent_map);
         let refined_compartments_2 = compartments_2.d_lambda_rule(100.0, 0.01);
-        assert!(refined_compartments_2.components.len() >= refined_compartments_1.components.len());
+        // Jaxley: per-branch ncomps = [3, 1, 7, 11], total = 22
+        assert_eq!(refined_compartments_2.components.len(), 22);
     }
 }

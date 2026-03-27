@@ -50,3 +50,7 @@ I don't know as much as I should about neuroscience computational models. This i
 ## SWC Convention
 
 We use the convention set out by [Neuronland](http://www.neuronland.org/NLMorphologyConverter/MorphologyFormats/SWC/Spec.html), which seems to be the canonical one
+
+## Validation
+
+We run some validations against [Jaxley](https://jaxley.readthedocs.io/) and that code is contained in [jaxley_reference](./jaxley_reference)

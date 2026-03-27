@@ -32,10 +32,16 @@ pub(crate) fn coalesce_into_sections(
     let mut sections = Vec::new();
     let mut starter_nodes = Vec::new();
 
+    // Helper: check if a node is the soma root (self-referencing parent)
+    let is_soma_root = |n: &Node| n.parent_id == n.node_id;
+
+    // Helper: check if a node has soma-type structure identifier
+    let is_soma_type =
+        |n: &Node| n.structured_identifier == crate::swc_reader::StructureIdentifier::Soma;
+
     // 1. Identify starter nodes
     for node in sorted_nodes {
-        let is_soma = node.parent_id == node.node_id;
-        if is_soma {
+        if is_soma_root(node) {
             starter_nodes.push(node.node_id);
             continue;
         }
@@ -45,7 +51,14 @@ pub(crate) fn coalesce_into_sections(
             .iter()
             .find(|n| n.node_id == parent_id)
             .expect("parent must exist in sorted nodes");
-        let is_parent_soma = parent_node.parent_id == parent_node.node_id;
+
+        // A soma-type child of the soma root is NOT a starter — it will be
+        // absorbed into the soma section during tracing.
+        if is_soma_root(parent_node) && is_soma_type(node) {
+            continue;
+        }
+
+        let is_parent_soma = is_soma_root(parent_node);
         let parent_children = filtered_children(parent_child_map, parent_id).len();
 
         if is_parent_soma || parent_children > 1 {
@@ -64,8 +77,8 @@ pub(crate) fn coalesce_into_sections(
         let mut length = 0.0;
         let mut sum_diam = node_map[&curr_id].radius * 2.0;
 
-        let is_soma = node_map[&starter_id].parent_id == starter_id;
-        if !is_soma {
+        let starter_is_soma_root = is_soma_root(node_map[&starter_id]);
+        if !starter_is_soma_root {
             let parent_id = node_map[&curr_id].parent_id;
             length += compute_length(node_map[&curr_id], node_map[&parent_id]);
         }
@@ -74,7 +87,25 @@ pub(crate) fn coalesce_into_sections(
             node_to_section.insert(curr_id, sec_id);
             let children = filtered_children(parent_child_map, curr_id);
 
-            if children.is_empty() || children.len() > 1 || (curr_id == starter_id && is_soma) {
+            if children.is_empty() || children.len() > 1 {
+                // For the soma root, check if exactly one child is soma-type;
+                // if so, trace into that child to build a multi-node soma section.
+                if starter_is_soma_root && !children.is_empty() {
+                    let soma_children: Vec<u64> = children
+                        .iter()
+                        .copied()
+                        .filter(|&cid| is_soma_type(node_map[&cid]))
+                        .collect();
+                    if soma_children.len() == 1 {
+                        let child_id = soma_children[0];
+                        length +=
+                            compute_length(node_map[&curr_id], node_map[&child_id]);
+                        sum_diam += node_map[&child_id].radius * 2.0;
+                        swc_nodes.push(child_id);
+                        curr_id = child_id;
+                        continue;
+                    }
+                }
                 break;
             }
 
