@@ -33,44 +33,27 @@ I don't know as much as I should about neuroscience computational models. This i
 
 ## Features
 
-- [x] `.swc` reader that topologically sorts the input `.swc` file and warns for 0-radius components.
-
-- [x] constructs compartment models via a multi-linked list.
-
-- [ ] Implement branching, where we coalesce multiple compartment models into higher-level "branches"
-  - [x] Will support `d-lambda` rule as outlined in the [NEURON Book - Chapter 5](https://www.fuw.edu.pl/~suffa/Modelowanie/NEURON%20-%20Book/chap5.pdf), page 28, under `d-lambda` rule
-  - Will take an existing multi-linked list and "resize" it
-
-- [ ] Dynamics
-  - [ ] Hodgkin-Huxley Dynamics
-  - [ ] LIF Dynamics
-  - [ ] Passive Membrane Potential
-
-- [ ] Synapse Dynamics
-  - [ ] Exp2Syn
-
-- [ ] Applying Currents
+See [Plan](./plan.md) for a rough outline of features. This will be updated over time
 
 ## SWC Convention
 
 We use the convention set out by [Neuronland](http://www.neuronland.org/NLMorphologyConverter/MorphologyFormats/SWC/Spec.html), which seems to be the canonical one
 
-
 ## Python Development
 
-Python **development** is managed via `uv` and is mostly just tests for ensuring correctness both as a sanity check (see [Validation against Jaxley](#validation-against-jaxley)) and to check that our built rust code is performing correctly. 
+Python **development** is managed via `uv` and is **mostly** just tests for ensuring correctness (see [Validation against Jaxley](#validation-against-jaxley)) and ensuring our rust code is performing correctly.
 
 If we build this right, python will just be a shim layer
 
 ### Dev tooling
-
-Includes `ruff` (linting/formatting) and `basedpyright` (type checking):
 
 ```sh
 uv sync --group dev
 ```
 
 ### Running tests
+
+Note: we dob't have any tests right now in python. We're just going off vibes and outputting the jaxley results to the screen
 
 ```sh
 uv sync --group test
