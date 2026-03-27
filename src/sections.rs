@@ -25,87 +25,118 @@ fn filtered_children(parent_child_map: &HashMap<u64, Vec<u64>>, node_id: u64) ->
         .unwrap_or_default()
 }
 
+/// Groups topologically-sorted SWC nodes into cable **sections** — contiguous,
+/// unbranched stretches of neurite that will each become one (or more, after the
+/// d_lambda rule) compartments in the simulation.
+///
+/// A section spans from a branch-start node to the node just before the next fork
+/// or leaf, capturing the total Euclidean length and mean diameter of that stretch.
+///
+/// # Algorithm
+///
+/// The function runs in three phases:
+///
+/// **Phase 1 — Soma:** All consecutive soma-type nodes (SWC type 1) starting from
+/// the root are coalesced into a single soma section (always section id 0).
+///
+/// **Phase 2 — Dendrites / Axons:** Every non-soma node that is either (a) a direct
+/// child of a soma node or (b) a child of a branching node (parent has >1 non-soma
+/// children) becomes a *starter* node for a new section. Each section is then traced
+/// forward through single-child nodes until a leaf or fork is reached.
+///
+/// **Phase 3 — Topology wiring:** `parent_id` and `children_ids` are filled in for
+/// every section by consulting the `node_to_section` map built during phases 1 and 2.
 pub(crate) fn coalesce_into_sections(
     sorted_nodes: &[Node],
     parent_child_map: &HashMap<u64, Vec<u64>>,
 ) -> Vec<Section> {
-    let mut sections = Vec::new();
-    let mut starter_nodes = Vec::new();
+    use crate::swc_reader::StructureIdentifier;
 
-    // Helper: check if a node is the soma root (self-referencing parent)
-    let is_soma_root = |n: &Node| n.parent_id == n.node_id;
+    let node_map: HashMap<u64, &Node> = sorted_nodes.iter().map(|n| (n.node_id, n)).collect();
+    let mut node_to_section: HashMap<u64, u64> = HashMap::new();
+    let mut sections: Vec<Section> = Vec::new();
 
-    // Helper: check if a node has soma-type structure identifier
-    let is_soma_type =
-        |n: &Node| n.structured_identifier == crate::swc_reader::StructureIdentifier::Soma;
+    let is_soma_type = |n: &Node| n.structured_identifier == StructureIdentifier::Soma;
 
-    // 1. Identify starter nodes
+    // ----------------------------------------------------------------
+    // Phase 1:
+    // Build up the soma sections into a single soma, which reflects what Jaxley does
+    // In the SWC, there can be many entries with the type of Soma, but only ever one
+    // that has the parent ID of -1
+    // ----------------------------------------------------------------
+    let soma_root = sorted_nodes
+        .iter()
+        .find(|n| n.parent_id == n.node_id)
+        .expect("SWC must have exactly one root node");
+
+    let mut soma_nodes: Vec<u64> = vec![soma_root.node_id];
+    let mut soma_length = 0.0_f64;
+    let mut soma_sum_diam = soma_root.radius * 2.0;
+    let mut curr_id = soma_root.node_id;
+
+    loop {
+        node_to_section.insert(curr_id, 0);
+        let soma_child: Vec<u64> = filtered_children(parent_child_map, curr_id)
+            .into_iter()
+            .filter(|&cid| is_soma_type(node_map[&cid]))
+            .collect();
+        // Continue only if there is exactly one unambiguous soma-type child.
+        if soma_child.len() != 1 {
+            break;
+        }
+        let child_id = soma_child[0];
+        soma_length += compute_length(node_map[&curr_id], node_map[&child_id]);
+        soma_sum_diam += node_map[&child_id].radius * 2.0;
+        soma_nodes.push(child_id);
+        curr_id = child_id;
+    }
+
+    // now we can start building up the sections that we will eventually return
+    sections.push(Section {
+        id: 0,
+        parent_id: None,
+        children_ids: vec![],
+        length: soma_length,
+        mean_diam: soma_sum_diam / soma_nodes.len() as f64,
+        swc_nodes: soma_nodes,
+    });
+
+    // ----------------------------------------------------------------
+    // Phase 2: Create sections from the Dendrites and Axons
+    // ----------------------------------------------------------------
+    let mut starter_nodes: Vec<u64> = Vec::new();
+
     for node in sorted_nodes {
-        if is_soma_root(node) {
-            starter_nodes.push(node.node_id);
-            continue;
+        if is_soma_type(node) {
+            continue; // soma nodes already handled in Phase 1
         }
 
-        let parent_id = node.parent_id;
-        let parent_node = sorted_nodes
-            .iter()
-            .find(|n| n.node_id == parent_id)
-            .expect("parent must exist in sorted nodes");
+        let parent_node = node_map[&node.parent_id];
+        let parent_is_soma = is_soma_type(parent_node);
+        let parent_non_soma_children = filtered_children(parent_child_map, node.parent_id)
+            .into_iter()
+            .filter(|&cid| !is_soma_type(node_map[&cid]))
+            .count();
 
-        // A soma-type child of the soma root is NOT a starter — it will be
-        // absorbed into the soma section during tracing.
-        if is_soma_root(parent_node) && is_soma_type(node) {
-            continue;
-        }
-
-        let is_parent_soma = is_soma_root(parent_node);
-        let parent_children = filtered_children(parent_child_map, parent_id).len();
-
-        if is_parent_soma || parent_children > 1 {
+        if parent_is_soma || parent_non_soma_children > 1 {
             starter_nodes.push(node.node_id);
         }
     }
 
-    let node_map: HashMap<u64, &Node> = sorted_nodes.iter().map(|n| (n.node_id, n)).collect();
-    let mut node_to_section = HashMap::new();
-
-    // 2. Trace sections
-    for (sec_idx, &starter_id) in starter_nodes.iter().enumerate() {
-        let sec_id = sec_idx as u64;
+    for (i, &starter_id) in starter_nodes.iter().enumerate() {
+        let sec_id = (i + 1) as u64; // section 0 is always soma
         let mut curr_id = starter_id;
         let mut swc_nodes = vec![curr_id];
-        let mut length = 0.0;
+        // Length begins with the edge from parent to this starter node.
+        let parent_id = node_map[&curr_id].parent_id;
+        let mut length = compute_length(node_map[&curr_id], node_map[&parent_id]);
         let mut sum_diam = node_map[&curr_id].radius * 2.0;
-
-        let starter_is_soma_root = is_soma_root(node_map[&starter_id]);
-        if !starter_is_soma_root {
-            let parent_id = node_map[&curr_id].parent_id;
-            length += compute_length(node_map[&curr_id], node_map[&parent_id]);
-        }
 
         loop {
             node_to_section.insert(curr_id, sec_id);
             let children = filtered_children(parent_child_map, curr_id);
 
             if children.is_empty() || children.len() > 1 {
-                // For the soma root, check if exactly one child is soma-type;
-                // if so, trace into that child to build a multi-node soma section.
-                if starter_is_soma_root && !children.is_empty() {
-                    let soma_children: Vec<u64> = children
-                        .iter()
-                        .copied()
-                        .filter(|&cid| is_soma_type(node_map[&cid]))
-                        .collect();
-                    if soma_children.len() == 1 {
-                        let child_id = soma_children[0];
-                        length +=
-                            compute_length(node_map[&curr_id], node_map[&child_id]);
-                        sum_diam += node_map[&child_id].radius * 2.0;
-                        swc_nodes.push(child_id);
-                        curr_id = child_id;
-                        continue;
-                    }
-                }
                 break;
             }
 
@@ -121,12 +152,15 @@ pub(crate) fn coalesce_into_sections(
             parent_id: None,
             children_ids: vec![],
             length,
-            mean_diam: sum_diam / (swc_nodes.len() as f64),
+            mean_diam: sum_diam / swc_nodes.len() as f64,
             swc_nodes,
         });
     }
 
-    // 3. Wire topology
+    // ----------------------------------------------------------------
+    // Phase 3: Wire topology.
+    // Fill in the parent IDs (forwards) and then the children IDs (backwards)
+    // ----------------------------------------------------------------
     for section in &mut sections {
         let first_node = node_map[&section.swc_nodes[0]];
         if first_node.parent_id != first_node.node_id {
